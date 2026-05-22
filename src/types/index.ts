@@ -10,7 +10,7 @@ export interface BookEntry {
   overallRating: number
   genre: string
   notes: string
-  createdAt: string
+  createdAt: string | null
 }
 
 export interface ProjectEntry {
@@ -25,7 +25,7 @@ export interface ProjectEntry {
   lessonsLearned: string
   startDate: string
   endDate: string
-  createdAt: string
+  createdAt: string | null
 }
 
 export interface Goal {
@@ -38,5 +38,5 @@ export interface Goal {
   targetDate: string
   progress: number
   notes: string
-  createdAt: string
+  createdAt: string | null
 }

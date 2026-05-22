@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { Plus, BookOpen, Trash2, Pencil, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,38 +15,25 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useLocalStorage } from '@/hooks/useLocalStorage'
-import type { BookEntry } from '@/types'
-
-const emptyBook = (): Omit<BookEntry, 'id' | 'createdAt'> => ({
-  title: '',
-  author: '',
-  dateFinished: '',
-  summary: '',
-  knowledgeRating: 5,
-  learningDepth: 5,
-  practicalValue: 5,
-  overallRating: 5,
-  genre: '',
-  notes: '',
-})
+import { trpc } from '@/router'
+import { useBooksStore } from '@/store/books'
 
 function StarRating({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
   return (
     <div className="space-y-1">
-      <Label className="text-xs text-[hsl(var(--muted-foreground))]">{label}</Label>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="flex gap-1">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
           <button
             key={n}
             type="button"
             onClick={() => onChange(n)}
-            className={`text-lg transition-colors ${n <= value ? 'text-amber-400' : 'text-gray-300 hover:text-amber-300'}`}
+            className={`text-lg transition-colors ${n <= value ? 'text-primary' : 'text-muted-foreground/40 hover:text-primary/60'}`}
           >
             ★
           </button>
         ))}
-        <span className="ml-1 text-sm text-[hsl(var(--muted-foreground))] self-center">{value}/10</span>
+        <span className="ml-1 text-sm text-muted-foreground self-center">{value}/10</span>
       </div>
     </div>
   )
@@ -54,10 +42,10 @@ function StarRating({ value, onChange, label }: { value: number; onChange: (v: n
 function RatingDisplay({ value, label }: { value: number; label: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-[hsl(var(--muted-foreground))] w-28 shrink-0">{label}</span>
+      <span className="text-xs text-muted-foreground w-28 shrink-0">{label}</span>
       <div className="flex gap-0.5">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-          <span key={n} className={`text-sm ${n <= value ? 'text-amber-400' : 'text-gray-200'}`}>★</span>
+          <span key={n} className={`text-sm ${n <= value ? 'text-primary' : 'text-muted-foreground/25'}`}>★</span>
         ))}
       </div>
       <span className="text-xs font-semibold">{value}/10</span>
@@ -66,37 +54,37 @@ function RatingDisplay({ value, label }: { value: number; label: string }) {
 }
 
 export default function ReadingLog() {
-  const [books, setBooks] = useLocalStorage<BookEntry[]>('reading-log', [])
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<BookEntry | null>(null)
-  const [form, setForm] = useState(emptyBook())
-  const [search, setSearch] = useState('')
+  const qc = useQueryClient()
+  const listKey = () => trpc.books.list.queryOptions().queryKey
+  const { data: books = [] } = useQuery(trpc.books.list.queryOptions())
 
-  function openAdd() {
-    setEditing(null)
-    setForm(emptyBook())
-    setOpen(true)
-  }
+  const createBook = useMutation(trpc.books.create.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey() }); toast.success('Book added') },
+    onError: () => toast.error('Failed to add book'),
+  }))
+  const updateBook = useMutation(trpc.books.update.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey() }); toast.success('Book saved') },
+    onError: () => toast.error('Failed to save book'),
+  }))
+  const deleteBook = useMutation(trpc.books.delete.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey() }); toast.success('Book deleted') },
+    onError: () => toast.error('Failed to delete book'),
+  }))
 
-  function openEdit(book: BookEntry) {
-    setEditing(book)
-    const { id: _id, createdAt: _ca, ...rest } = book
-    setForm(rest)
-    setOpen(true)
-  }
+  const { open, editing, form, search, openAdd, openEdit, close, setForm, setSearch } = useBooksStore()
 
   function save() {
     if (!form.title.trim() || !form.summary.trim()) return
     if (editing) {
-      setBooks(books.map((b) => (b.id === editing.id ? { ...editing, ...form } : b)))
+      updateBook.mutate({ id: editing.id, ...form })
     } else {
-      setBooks([{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), ...form }, ...books])
+      createBook.mutate(form)
     }
-    setOpen(false)
+    close()
   }
 
   function remove(id: string) {
-    setBooks(books.filter((b) => b.id !== id))
+    deleteBook.mutate({ id })
   }
 
   const filtered = books.filter(
@@ -107,13 +95,13 @@ export default function ReadingLog() {
   )
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6" /> Reading Log
           </h1>
-          <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
+          <p className="text-muted-foreground text-sm mt-1">
             {books.length} book{books.length !== 1 ? 's' : ''} documented
           </p>
         </div>
@@ -130,7 +118,7 @@ export default function ReadingLog() {
       />
 
       {filtered.length === 0 && (
-        <div className="text-center py-16 text-[hsl(var(--muted-foreground))]">
+        <div className="text-center py-16 text-muted-foreground">
           <BookOpen className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p className="text-lg font-medium">{books.length === 0 ? 'No books yet' : 'No results found'}</p>
           <p className="text-sm">{books.length === 0 ? 'Add your first book to get started.' : 'Try a different search.'}</p>
@@ -144,13 +132,13 @@ export default function ReadingLog() {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <CardTitle className="text-lg">{book.title}</CardTitle>
-                  <p className="text-sm text-[hsl(var(--muted-foreground))]">by {book.author}</p>
+                  <p className="text-sm text-muted-foreground">by {book.author}</p>
                   <div className="flex flex-wrap gap-2 pt-1">
                     {book.genre && <Badge variant="secondary">{book.genre}</Badge>}
                     {book.dateFinished && (
                       <Badge variant="outline">Finished: {book.dateFinished}</Badge>
                     )}
-                    <Badge className="bg-amber-100 text-amber-800 border-amber-200">
+                    <Badge className="bg-accent text-accent-foreground border-accent/50">
                       <Star className="h-3 w-3 mr-1" /> {book.overallRating}/10
                     </Badge>
                   </div>
@@ -159,7 +147,7 @@ export default function ReadingLog() {
                   <Button variant="ghost" size="icon" onClick={() => openEdit(book)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => remove(book.id)} className="text-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive))]">
+                  <Button variant="ghost" size="icon" onClick={() => remove(book.id)} className="text-destructive hover:text-destructive">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -168,7 +156,7 @@ export default function ReadingLog() {
             <CardContent className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-1">Summary</p>
-                <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{book.summary}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{book.summary}</p>
               </div>
               <Separator />
               <div className="space-y-2">
@@ -183,7 +171,7 @@ export default function ReadingLog() {
                   <Separator />
                   <div>
                     <p className="text-sm font-medium mb-1">Notes</p>
-                    <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{book.notes}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{book.notes}</p>
                   </div>
                 </>
               )}
@@ -192,7 +180,7 @@ export default function ReadingLog() {
         ))}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { if (!v) close() }}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit Book' : 'Add Book'}</DialogTitle>
@@ -224,7 +212,7 @@ export default function ReadingLog() {
                 value={form.summary}
                 onChange={(e) => setForm({ ...form, summary: e.target.value })}
                 placeholder="Write a summary of the book, key takeaways, and what you found most valuable…"
-                className="min-h-[120px]"
+                className="min-h-30"
               />
             </div>
             <Separator />
@@ -241,12 +229,12 @@ export default function ReadingLog() {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Any other thoughts, quotes, or references…"
-                className="min-h-[80px]"
+                className="min-h-20"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={close}>Cancel</Button>
             <Button onClick={save} disabled={!form.title.trim() || !form.summary.trim()}>
               {editing ? 'Save Changes' : 'Add Book'}
             </Button>

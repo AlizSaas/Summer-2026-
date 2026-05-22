@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { Plus, Code2, GitMerge, Trash2, Pencil, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,26 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useLocalStorage } from '@/hooks/useLocalStorage'
+import { trpc } from '@/router'
 import type { ProjectEntry } from '@/types'
-
-const emptyProject = (): Omit<ProjectEntry, 'id' | 'createdAt'> => ({
-  title: '',
-  type: 'project',
-  description: '',
-  link: '',
-  techStack: '',
-  status: 'in-progress',
-  impact: '',
-  lessonsLearned: '',
-  startDate: '',
-  endDate: '',
-})
+import { useProjectsStore } from '@/store/projects'
 
 const statusColors: Record<ProjectEntry['status'], string> = {
-  'in-progress': 'bg-blue-100 text-blue-800 border-blue-200',
-  completed: 'bg-green-100 text-green-800 border-green-200',
-  abandoned: 'bg-red-100 text-red-800 border-red-200',
+  'in-progress': 'bg-primary/15 text-primary border-primary/30',
+  completed: 'bg-secondary text-secondary-foreground border-border',
+  abandoned: 'bg-destructive/15 text-destructive border-destructive/30',
 }
 
 const statusLabels: Record<ProjectEntry['status'], string> = {
@@ -50,37 +39,37 @@ const statusLabels: Record<ProjectEntry['status'], string> = {
 }
 
 export default function ProgressTracker() {
-  const [entries, setEntries] = useLocalStorage<ProjectEntry[]>('progress-tracker', [])
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<ProjectEntry | null>(null)
-  const [form, setForm] = useState(emptyProject())
-  const [filter, setFilter] = useState<'all' | 'project' | 'open-source'>('all')
+  const qc = useQueryClient()
+  const listKey = () => trpc.projects.list.queryOptions().queryKey
+  const { data: entries = [] } = useQuery(trpc.projects.list.queryOptions())
 
-  function openAdd() {
-    setEditing(null)
-    setForm(emptyProject())
-    setOpen(true)
-  }
+  const createProject = useMutation(trpc.projects.create.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey() }); toast.success('Entry added') },
+    onError: () => toast.error('Failed to add entry'),
+  }))
+  const updateProject = useMutation(trpc.projects.update.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey() }); toast.success('Entry saved') },
+    onError: () => toast.error('Failed to save entry'),
+  }))
+  const deleteProject = useMutation(trpc.projects.delete.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey() }); toast.success('Entry deleted') },
+    onError: () => toast.error('Failed to delete entry'),
+  }))
 
-  function openEdit(entry: ProjectEntry) {
-    setEditing(entry)
-    const { id: _id, createdAt: _ca, ...rest } = entry
-    setForm(rest)
-    setOpen(true)
-  }
+  const { open, editing, form, filter, openAdd, openEdit, close, setForm, setFilter } = useProjectsStore()
 
   function save() {
     if (!form.title.trim() || !form.description.trim()) return
     if (editing) {
-      setEntries(entries.map((e) => (e.id === editing.id ? { ...editing, ...form } : e)))
+      updateProject.mutate({ id: editing.id, ...form })
     } else {
-      setEntries([{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), ...form }, ...entries])
+      createProject.mutate(form)
     }
-    setOpen(false)
+    close()
   }
 
   function remove(id: string) {
-    setEntries(entries.filter((e) => e.id !== id))
+    deleteProject.mutate({ id })
   }
 
   const filtered = entries.filter((e) => filter === 'all' || e.type === filter)
@@ -89,13 +78,13 @@ export default function ProgressTracker() {
   const completed = entries.filter((e) => e.status === 'completed')
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Code2 className="h-6 w-6" /> Progress Tracker
           </h1>
-          <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
+          <p className="text-muted-foreground text-sm mt-1">
             {projects.length} project{projects.length !== 1 ? 's' : ''} · {openSource.length} open-source · {completed.length} completed
           </p>
         </div>
@@ -118,7 +107,7 @@ export default function ProgressTracker() {
       </div>
 
       {filtered.length === 0 && (
-        <div className="text-center py-16 text-[hsl(var(--muted-foreground))]">
+        <div className="text-center py-16 text-muted-foreground">
           <Code2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p className="text-lg font-medium">{entries.length === 0 ? 'Nothing tracked yet' : 'No results'}</p>
           <p className="text-sm">{entries.length === 0 ? 'Log your first project or contribution.' : 'Try a different filter.'}</p>
@@ -132,10 +121,10 @@ export default function ProgressTracker() {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <CardTitle className="text-lg flex items-center gap-2">
-                    {entry.type === 'open-source' ? <GitMerge className="h-4 w-4 text-purple-500" /> : <Code2 className="h-4 w-4 text-blue-500" />}
+                    {entry.type === 'open-source' ? <GitMerge className="h-4 w-4 text-primary" /> : <Code2 className="h-4 w-4 text-muted-foreground" />}
                     {entry.title}
                   </CardTitle>
-                  <div className="flex flex-wrap gap-2 pt-1">
+                  <div className="flex flex-wrap gap-2 pt-1 ">
                     <Badge variant="outline">{entry.type === 'open-source' ? 'Open Source' : 'Project'}</Badge>
                     <Badge className={statusColors[entry.status]}>{statusLabels[entry.status]}</Badge>
                     {entry.startDate && (
@@ -153,7 +142,7 @@ export default function ProgressTracker() {
                     variant="ghost"
                     size="icon"
                     onClick={() => remove(entry.id)}
-                    className="text-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive))]"
+                    className="text-destructive hover:text-destructive"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -163,14 +152,14 @@ export default function ProgressTracker() {
             <CardContent className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-1">Description</p>
-                <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{entry.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{entry.description}</p>
               </div>
               {entry.link && (
                 <a
                   href={entry.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                 >
                   <ExternalLink className="h-3.5 w-3.5" /> {entry.link}
                 </a>
@@ -189,13 +178,13 @@ export default function ProgressTracker() {
               {entry.impact && (
                 <div>
                   <p className="text-sm font-medium mb-1">Impact</p>
-                  <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{entry.impact}</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{entry.impact}</p>
                 </div>
               )}
               {entry.lessonsLearned && (
                 <div>
                   <p className="text-sm font-medium mb-1">Lessons Learned</p>
-                  <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{entry.lessonsLearned}</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{entry.lessonsLearned}</p>
                 </div>
               )}
             </CardContent>
@@ -203,7 +192,7 @@ export default function ProgressTracker() {
         ))}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { if (!v) close() }}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit Entry' : 'Add Entry'}</DialogTitle>
@@ -231,7 +220,7 @@ export default function ProgressTracker() {
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="Describe what you built or contributed, the problem it solves, and why it matters…"
-                className="min-h-[100px]"
+                className="min-h-25"
               />
             </div>
             <div className="space-y-2">
@@ -248,6 +237,7 @@ export default function ProgressTracker() {
                 <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as ProjectEntry['status'] })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
+
                     <SelectItem value="in-progress">In Progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="abandoned">Abandoned</SelectItem>
@@ -271,7 +261,7 @@ export default function ProgressTracker() {
                 value={form.impact}
                 onChange={(e) => setForm({ ...form, impact: e.target.value })}
                 placeholder="What was the real-world impact or outcome?"
-                className="min-h-[70px]"
+                className="min-h-17.5"
               />
             </div>
             <div className="space-y-2">
@@ -280,12 +270,12 @@ export default function ProgressTracker() {
                 value={form.lessonsLearned}
                 onChange={(e) => setForm({ ...form, lessonsLearned: e.target.value })}
                 placeholder="What did you learn from this experience?"
-                className="min-h-[70px]"
+                className="min-h-17.5"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={close}>Cancel</Button>
             <Button onClick={save} disabled={!form.title.trim() || !form.description.trim()}>
               {editing ? 'Save Changes' : 'Add Entry'}
             </Button>

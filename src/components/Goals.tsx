@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { Plus, Target, Trash2, Pencil, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,43 +22,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useLocalStorage } from '@/hooks/useLocalStorage'
+import { trpc } from '@/router'
 import type { Goal } from '@/types'
-
-const emptyGoal = (): Omit<Goal, 'id' | 'createdAt'> => ({
-  title: '',
-  category: '',
-  description: '',
-  status: 'not-started',
-  priority: 'medium',
-  targetDate: '',
-  progress: 0,
-  notes: '',
-})
+import { useGoalsStore } from '@/store/goals'
+import { useQueryState } from 'nuqs'
 
 const statusConfig: Record<Goal['status'], { label: string; color: string }> = {
-  'not-started': { label: 'Not Started', color: 'bg-gray-100 text-gray-700 border-gray-200' },
-  'in-progress': { label: 'In Progress', color: 'bg-blue-100 text-blue-800 border-blue-200' },
-  completed: { label: 'Completed', color: 'bg-green-100 text-green-800 border-green-200' },
-  paused: { label: 'Paused', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+  'not-started': { label: 'Not Started', color: 'bg-muted text-muted-foreground border-border' },
+  'in-progress': { label: 'In Progress', color: 'bg-primary/15 text-primary border-primary/30' },
+  completed: { label: 'Completed', color: 'bg-secondary text-secondary-foreground border-border' },
+  paused: { label: 'Paused', color: 'bg-accent text-accent-foreground border-accent/50' },
 }
 
 const priorityConfig: Record<Goal['priority'], { label: string; color: string }> = {
-  low: { label: 'Low', color: 'bg-slate-100 text-slate-600 border-slate-200' },
-  medium: { label: 'Medium', color: 'bg-orange-100 text-orange-700 border-orange-200' },
-  high: { label: 'High Priority', color: 'bg-red-100 text-red-700 border-red-200' },
+  low: { label: 'Low', color: 'bg-muted text-muted-foreground border-border' },
+  medium: { label: 'Medium', color: 'bg-accent text-accent-foreground border-accent/50' },
+  high: { label: 'High Priority', color: 'bg-destructive/15 text-destructive border-destructive/30' },
+}
+
+const goalStatuses = ['not-started', 'in-progress', 'completed', 'paused'] as const
+const goalPriorities = ['low', 'medium', 'high'] as const
+
+function isGoalStatus(value: string | null): value is Goal['status'] {
+  return value !== null && (goalStatuses as readonly string[]).includes(value)
+}
+
+function isGoalPriority(value: string | null): value is Goal['priority'] {
+  return value !== null && (goalPriorities as readonly string[]).includes(value)
 }
 
 function ProgressBar({ value }: { value: number }) {
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-xs text-[hsl(var(--muted-foreground))]">
+      <div className="flex justify-between text-xs text-muted-foreground">
         <span>Progress</span>
         <span>{value}%</span>
       </div>
-      <div className="w-full bg-[hsl(var(--secondary))] rounded-full h-2">
+      <div className="w-full bg-secondary rounded-full h-2">
         <div
-          className="bg-[hsl(var(--primary))] h-2 rounded-full transition-all"
+          className="bg-primary h-2 rounded-full transition-all"
           style={{ width: `${value}%` }}
         />
       </div>
@@ -66,42 +69,53 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 export default function Goals() {
-  const [goals, setGoals] = useLocalStorage<Goal[]>('misc-goals', [])
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<Goal | null>(null)
-  const [form, setForm] = useState(emptyGoal())
-  const [filterStatus, setFilterStatus] = useState<Goal['status'] | 'all'>('all')
-  const [filterPriority, setFilterPriority] = useState<Goal['priority'] | 'all'>('all')
+  const qc = useQueryClient()
+  const [statusParam, setStatusParam] = useQueryState('status')
+  const [priorityParam, setPriorityParam] = useQueryState('priority')
 
-  function openAdd() {
-    setEditing(null)
-    setForm(emptyGoal())
-    setOpen(true)
+  const filterStatus = isGoalStatus(statusParam) ? statusParam : 'all'
+  const filterPriority = isGoalPriority(priorityParam) ? priorityParam : 'all'
+
+  const listFilters = {
+    status: filterStatus === 'all' ? undefined : filterStatus,
+    priority: filterPriority === 'all' ? undefined : filterPriority,
   }
 
-  function openEdit(goal: Goal) {
-    setEditing(goal)
-    const { id: _id, createdAt: _ca, ...rest } = goal
-    setForm(rest)
-    setOpen(true)
-  }
+  const listQuery = trpc.goals.list.queryOptions(listFilters)
+  const { data: goals = [] } = useQuery(listQuery)
+  const listKey = listQuery.queryKey
+
+  const createGoal = useMutation(trpc.goals.create.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey }); toast.success('Goal added') },
+    onError: () => toast.error('Failed to add goal'),
+  }))
+  const updateGoal = useMutation(trpc.goals.update.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey }); toast.success('Goal saved') },
+    onError: () => toast.error('Failed to save goal'),
+  }))
+  const deleteGoal = useMutation(trpc.goals.delete.mutationOptions({
+    onSuccess: () => { qc.invalidateQueries({ queryKey: listKey }); toast.success('Goal deleted') },
+    onError: () => toast.error('Failed to delete goal'),
+  }))
+
+  const { open, editing, form, openAdd, openEdit, close, setForm } = useGoalsStore()
 
   function save() {
     if (!form.title.trim()) return
     if (editing) {
-      setGoals(goals.map((g) => (g.id === editing.id ? { ...editing, ...form } : g)))
+      updateGoal.mutate({ id: editing.id, ...form })
     } else {
-      setGoals([{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), ...form }, ...goals])
+      createGoal.mutate(form)
     }
-    setOpen(false)
+    close()
   }
 
   function remove(id: string) {
-    setGoals(goals.filter((g) => g.id !== id))
+    deleteGoal.mutate({ id })
   }
 
   function quickComplete(id: string) {
-    setGoals(goals.map((g) => (g.id === id ? { ...g, status: 'completed', progress: 100 } : g)))
+    updateGoal.mutate({ id, status: 'completed', progress: 100 })
   }
 
   const filtered = goals.filter((g) => {
@@ -116,13 +130,13 @@ export default function Goals() {
   const categories = [...new Set(goals.map((g) => g.category).filter(Boolean))]
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Target className="h-6 w-6" /> Miscellaneous Goals
           </h1>
-          <p className="text-[hsl(var(--muted-foreground))] text-sm mt-1">
+          <p className="text-muted-foreground text-sm mt-1">
             {goals.length} total · {inProgress} in progress · {completed} completed
           </p>
         </div>
@@ -131,9 +145,12 @@ export default function Goals() {
         </Button>
       </div>
 
-      {goals.length > 0 && (
+      {(goals.length > 0 || filterStatus !== 'all' || filterPriority !== 'all') && (
         <div className="flex flex-wrap gap-2">
-          <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}>
+          <Select
+            value={filterStatus}
+            onValueChange={(value) => setStatusParam(value === 'all' ? null : value)}
+          >
             <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
@@ -143,7 +160,10 @@ export default function Goals() {
               <SelectItem value="paused">Paused</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterPriority} onValueChange={(v) => setFilterPriority(v as typeof filterPriority)}>
+          <Select
+            value={filterPriority}
+            onValueChange={(value) => setPriorityParam(value === 'all' ? null : value)}
+          >
             <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All priorities" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Priorities</SelectItem>
@@ -157,7 +177,7 @@ export default function Goals() {
 
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          <span className="text-xs text-[hsl(var(--muted-foreground))] self-center mr-1">Categories:</span>
+          <span className="text-xs text-muted-foreground self-center mr-1">Categories:</span>
           {categories.map((cat) => (
             <Badge key={cat} variant="outline" className="text-xs">{cat}</Badge>
           ))}
@@ -165,7 +185,7 @@ export default function Goals() {
       )}
 
       {filtered.length === 0 && (
-        <div className="text-center py-16 text-[hsl(var(--muted-foreground))]">
+        <div className="text-center py-16 text-muted-foreground">
           <Target className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p className="text-lg font-medium">{goals.length === 0 ? 'No goals yet' : 'No results'}</p>
           <p className="text-sm">{goals.length === 0 ? 'Set your first goal and start tracking.' : 'Try different filters.'}</p>
@@ -179,7 +199,7 @@ export default function Goals() {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <CardTitle className="text-lg flex items-center gap-2">
-                    {goal.status === 'completed' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                    {goal.status === 'completed' && <CheckCircle2 className="h-4 w-4 text-primary" />}
                     {goal.title}
                   </CardTitle>
                   <div className="flex flex-wrap gap-2 pt-1">
@@ -193,7 +213,7 @@ export default function Goals() {
                 </div>
                 <div className="flex gap-1 shrink-0">
                   {goal.status !== 'completed' && (
-                    <Button variant="ghost" size="icon" onClick={() => quickComplete(goal.id)} title="Mark complete" className="text-green-600 hover:text-green-600">
+                    <Button variant="ghost" size="icon" onClick={() => quickComplete(goal.id)} title="Mark complete" className="text-primary hover:text-primary">
                       <CheckCircle2 className="h-4 w-4" />
                     </Button>
                   )}
@@ -204,7 +224,7 @@ export default function Goals() {
                     variant="ghost"
                     size="icon"
                     onClick={() => remove(goal.id)}
-                    className="text-[hsl(var(--destructive))] hover:text-[hsl(var(--destructive))]"
+                    className="text-destructive hover:text-destructive"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -213,7 +233,7 @@ export default function Goals() {
             </CardHeader>
             <CardContent className="space-y-4">
               {goal.description && (
-                <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{goal.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{goal.description}</p>
               )}
               <ProgressBar value={goal.progress} />
               {goal.notes && (
@@ -221,7 +241,7 @@ export default function Goals() {
                   <Separator />
                   <div>
                     <p className="text-sm font-medium mb-1">Notes</p>
-                    <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">{goal.notes}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{goal.notes}</p>
                   </div>
                 </>
               )}
@@ -230,7 +250,7 @@ export default function Goals() {
         ))}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { if (!v) close() }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit Goal' : 'Add Goal'}</DialogTitle>
@@ -256,7 +276,7 @@ export default function Goals() {
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="Describe the goal, why it matters, and how you plan to achieve it…"
-                className="min-h-[90px]"
+                className="min-h-22.5"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -264,7 +284,7 @@ export default function Goals() {
                 <Label>Status</Label>
                 <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as Goal['status'] })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className='opacity-105'>
                     <SelectItem value="not-started">Not Started</SelectItem>
                     <SelectItem value="in-progress">In Progress</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -293,7 +313,7 @@ export default function Goals() {
                 step={5}
                 value={form.progress}
                 onChange={(e) => setForm({ ...form, progress: Number(e.target.value) })}
-                className="w-full accent-[hsl(var(--primary))]"
+                className="w-full accent-primary"
               />
             </div>
             <div className="space-y-2">
@@ -302,12 +322,12 @@ export default function Goals() {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Any additional notes, milestones, or reflections…"
-                className="min-h-[70px]"
+                className="min-h-17.5"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={close}>Cancel</Button>
             <Button onClick={save} disabled={!form.title.trim()}>
               {editing ? 'Save Changes' : 'Add Goal'}
             </Button>

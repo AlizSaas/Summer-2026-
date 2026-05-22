@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1779384532903,
+      "tag": "0000_wealthy_miss_america",
+      "breakpoints": true
+    }
+  ]
+}
