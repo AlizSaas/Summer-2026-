@@ -77,6 +77,7 @@ function useSendMessage() {
 
 const QUICK_ACTIONS = [
   "Schedule a daily summary email every morning at 9am",
+  "What's my daily summary schedule?",
   "What are my current goals?",
   "How many goals did I complete?",
   "What books have I logged?",

@@ -9,7 +9,7 @@ import { cors } from "hono/cors";
 
 const App = new Hono<{
   Bindings: ServiceBindings;
-  Variables: { userId: string };
+  Variables: { userId: string; userEmail?: string };
 }>();
 
 // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -22,7 +22,7 @@ App.use('*', cors({
 
 const authMiddleware = createMiddleware<{
   Bindings: ServiceBindings;
-  Variables: { userId: string };
+  Variables: { userId: string; userEmail?: string };
 }>(async (c, next) => {
   const auth = createAuth(c.env);
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -30,10 +30,13 @@ const authMiddleware = createMiddleware<{
     return c.text("Unauthorized", 401);
   }
   c.set("userId", session.user.id);
+  if (session.user.email) {
+    c.set("userEmail", session.user.email);
+  }
   await next();
 });
 
-type AppEnv = { Bindings: ServiceBindings; Variables: { userId: string } }
+type AppEnv = { Bindings: ServiceBindings; Variables: { userId: string; userEmail?: string } }
 
 const trpcHandler = (c: Context<AppEnv>) => {
   const userId = c.get("userId");

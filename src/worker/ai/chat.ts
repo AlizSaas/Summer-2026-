@@ -3,7 +3,7 @@ import type { ChatCompletionMessageParam, ChatCompletionMessageToolCall } from '
 import type { Context } from 'hono'
 import { AI_TOOLS, executeToolCall } from './tools'
 
-type HonoCtx = Context<{ Bindings: ServiceBindings; Variables: { userId: string } }>
+type HonoCtx = Context<{ Bindings: ServiceBindings; Variables: { userId: string; userEmail?: string } }>
 
 const AI_FALLBACK = "Sorry, I couldn't understand that."
 
@@ -20,8 +20,9 @@ function sseError(msg: string) {
 export async function handleChat(c: HonoCtx): Promise<Response> {
   const body = await c.req.json<{ messages: Array<{ role: string; content: string }> }>()
   const userId = c.get('userId')
+  const userEmail = c.get('userEmail')
   const openai = new OpenAI({ apiKey: c.env.OPENAI_API_KEY })
-  const toolRequestContext = { baseUrl: c.req.url, headers: c.req.raw.headers }
+  const toolRequestContext = { baseUrl: c.req.url, headers: c.req.raw.headers, userEmail, env: c.env }
 
   const messages: ChatCompletionMessageParam[] = [
     {
@@ -29,7 +30,12 @@ export async function handleChat(c: HonoCtx): Promise<Response> {
       content: `You are a personal productivity assistant for a summer 2026 tracker app.
 Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 You help manage goals, reading log, coding projects, and todo boards.
-When you make changes, briefly confirm what you did. Be concise and friendly.`,
+When you make changes, briefly confirm what you did. Be concise and friendly.
+
+DAILY SUMMARY RULES:
+- Before scheduling, always call getDailySummaryStatus first to check if one already exists.
+- If one exists, call cancelDailySummary before scheduling the new one.
+- If the user asks to cancel, call getDailySummaryStatus first. If no schedule exists, tell them there is nothing to cancel.`,
     },
     ...body.messages.map((m) => ({
       role: m.role as 'user' | 'assistant',
@@ -71,6 +77,7 @@ When you make changes, briefly confirm what you did. Be concise and friendly.`,
           const fn = (tc as ChatCompletionMessageToolCall & { function: { name: string; arguments: string } }).function
           let args: Record<string, unknown>
           try { args = JSON.parse(fn.arguments) as Record<string, unknown> } catch { args = {} }
+          console.info('AI tool call', { name: fn.name, args })
           const result = await executeToolCall(fn.name, args, userId, toolRequestContext)
           return { role: 'tool' as const, tool_call_id: tc.id, content: result }
         }),

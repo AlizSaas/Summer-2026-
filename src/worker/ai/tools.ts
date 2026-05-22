@@ -6,6 +6,8 @@ import { getDb } from '@/db/database'
 type ToolRequestContext = {
   baseUrl: string
   headers: Headers
+  userEmail?: string
+  env?: ServiceBindings
 }
 
 function buildInternalHeaders(source: Headers) {
@@ -250,6 +252,14 @@ export const AI_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'getDailySummaryStatus',
+      description: 'Get the current daily summary schedule status. Call this before scheduling or cancelling.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'scheduleDailySummary',
       description: 'Schedule the daily morning summary email',
       parameters: {
@@ -467,40 +477,129 @@ export async function executeToolCall(
       return JSON.stringify(row)
     }
 
+    case 'getDailySummaryStatus': {
+      const env = requestContext.env
+      if (env?.DAILY_SUMMARY) {
+        const id = env.DAILY_SUMMARY.idFromName(userId)
+        const stub = env.DAILY_SUMMARY.get(id)
+        const response = await stub.fetch('https://daily-summary/status', {
+          method: 'GET',
+          headers: { 'x-user-id': userId },
+        })
+        return response.text()
+      }
+      const url = new URL('/api/summary/status', requestContext.baseUrl)
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: buildInternalHeaders(requestContext.headers),
+      })
+      return response.text()
+    }
+
     case 'scheduleDailySummary': {
       const hour = Number(args.hour)
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
         return JSON.stringify({ error: 'Hour must be an integer between 0 and 23.' })
       }
+      const directEmail = typeof requestContext.userEmail === 'string'
+        ? requestContext.userEmail.trim()
+        : ''
+      let email = directEmail
 
-      const [profile] = await db
-        .select({ email: user.email })
-        .from(user)
-        .where(eq(user.id, userId))
-        .limit(1)
+      if (!email) {
+        const [profile] = await db
+          .select({ email: user.email })
+          .from(user)
+          .where(eq(user.id, userId))
+          .limit(1)
+        email = profile?.email?.trim() ?? ''
+      }
 
-      if (!profile?.email) {
+      if (!email) {
         return JSON.stringify({ error: 'Unable to find an email for this user.' })
+      }
+      const env = requestContext.env
+      if (env?.DAILY_SUMMARY) {
+        const id = env.DAILY_SUMMARY.idFromName(userId)
+        const stub = env.DAILY_SUMMARY.get(id)
+        const response = await stub.fetch('https://daily-summary/schedule', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': userId,
+          },
+          body: JSON.stringify({ email, hour }),
+        })
+        const responseText = await response.text()
+        if (!response.ok) {
+          return JSON.stringify({
+            error: 'scheduleDailySummary failed',
+            status: response.status,
+            statusText: response.statusText,
+            body: responseText,
+          })
+        }
+
+        return responseText
       }
 
       const url = new URL('/api/summary/schedule', requestContext.baseUrl)
       const response = await fetch(url.toString(), {
         method: 'POST',
         headers: buildInternalHeaders(requestContext.headers),
-        body: JSON.stringify({ email: profile.email, hour }),
+        body: JSON.stringify({ email, hour }),
       })
+      const responseText = await response.text()
+      if (!response.ok) {
+        return JSON.stringify({
+          error: 'scheduleDailySummary failed',
+          status: response.status,
+          statusText: response.statusText,
+          body: responseText,
+        })
+      }
 
-      return await response.text()
+      return responseText
     }
 
     case 'cancelDailySummary': {
+      const env = requestContext.env
+      if (env?.DAILY_SUMMARY) {
+        const id = env.DAILY_SUMMARY.idFromName(userId)
+        const stub = env.DAILY_SUMMARY.get(id)
+        const response = await stub.fetch('https://daily-summary/cancel', {
+          method: 'POST',
+          headers: { 'x-user-id': userId },
+        })
+        const responseText = await response.text()
+        if (!response.ok) {
+          return JSON.stringify({
+            error: 'cancelDailySummary failed',
+            status: response.status,
+            statusText: response.statusText,
+            body: responseText,
+          })
+        }
+
+        return responseText
+      }
+
       const url = new URL('/api/summary/cancel', requestContext.baseUrl)
       const response = await fetch(url.toString(), {
         method: 'POST',
         headers: buildInternalHeaders(requestContext.headers),
       })
+      const responseText = await response.text()
+      if (!response.ok) {
+        return JSON.stringify({
+          error: 'cancelDailySummary failed',
+          status: response.status,
+          statusText: response.statusText,
+          body: responseText,
+        })
+      }
 
-      return await response.text()
+      return responseText
     }
 
     default:
