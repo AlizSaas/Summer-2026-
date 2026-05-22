@@ -3,16 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
+ "scripts": {
+    "build": "vite build",
     "deploy": "npm run build && wrangler deploy",
     "preview": "npm run build && wrangler dev",
     "cf-typegen": "wrangler types",
     "lint": "eslint .",
     "dev": "vite --port 3000 --mode development",
-    "migrate": "drizzle-kit migrate  --config drizzle.config.ts",
-    "generate": "drizzle-kit generate  --config drizzle.config.ts",
-    "studio": "drizzle-kit studio  --config drizzle.config.ts"
-  },
+    "migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "generate": "drizzle-kit generate --config drizzle.config.ts",
+    "studio": "drizzle-kit studio --config drizzle.config.ts"
+},
   "dependencies": {
     "@ai-sdk/openai": "^3.0.65",
     "@ai-sdk/react": "^3.0.192",
