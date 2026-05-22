@@ -4,7 +4,6 @@ import { t, protectedProcedure } from '../trpc-instance'
 import { todoCards, todoColumns } from '@/db/drizzle-out/schema'
 
 export const todosRouter = t.router({
-  // Returns all columns with their cards. Auto-seeds default columns on first use.
   getBoard: protectedProcedure.query(async ({ ctx }) => {
     let cols = await ctx.db
       .select()
@@ -75,105 +74,103 @@ export const todosRouter = t.router({
       return card
     }),
 
+  // ✅ No transaction
   deleteCard: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.transaction(async (tx) => {
-        const [card] = await tx
-          .select()
-          .from(todoCards)
-          .where(and(eq(todoCards.id, input.id), eq(todoCards.userId, ctx.userId)))
+      const [card] = await ctx.db
+        .select()
+        .from(todoCards)
+        .where(and(eq(todoCards.id, input.id), eq(todoCards.userId, ctx.userId)))
 
-        if (!card) return
+      if (!card) return { success: false }
 
-        await tx
-          .delete(todoCards)
-          .where(and(eq(todoCards.id, input.id), eq(todoCards.userId, ctx.userId)))
+      await ctx.db
+        .delete(todoCards)
+        .where(and(eq(todoCards.id, input.id), eq(todoCards.userId, ctx.userId)))
 
-        const remainingCards = await tx
-          .select()
-          .from(todoCards)
-          .where(and(eq(todoCards.userId, ctx.userId), eq(todoCards.columnId, card.columnId)))
-          .orderBy(asc(todoCards.position))
+      const remaining = await ctx.db
+        .select()
+        .from(todoCards)
+        .where(and(eq(todoCards.userId, ctx.userId), eq(todoCards.columnId, card.columnId)))
+        .orderBy(asc(todoCards.position))
 
-        for (const [position, nextCard] of remainingCards.entries()) {
-          await tx
-            .update(todoCards)
-            .set({ position })
-            .where(and(eq(todoCards.id, nextCard.id), eq(todoCards.userId, ctx.userId)))
-        }
-      })
+      for (const [position, c] of remaining.entries()) {
+        await ctx.db
+          .update(todoCards)
+          .set({ position })
+          .where(and(eq(todoCards.id, c.id), eq(todoCards.userId, ctx.userId)))
+      }
+
       return { success: true }
     }),
 
+  // ✅ No transaction
   moveCard: protectedProcedure
     .input(z.object({ id: z.string(), toColumnId: z.string(), position: z.number().int().min(0) }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.transaction(async (tx) => {
-        const [movedCard] = await tx
-          .select()
-          .from(todoCards)
-          .where(and(eq(todoCards.id, input.id), eq(todoCards.userId, ctx.userId)))
+      const [movedCard] = await ctx.db
+        .select()
+        .from(todoCards)
+        .where(and(eq(todoCards.id, input.id), eq(todoCards.userId, ctx.userId)))
 
-        if (!movedCard) return
+      if (!movedCard) return { success: false }
 
-        const allCards = await tx
-          .select()
-          .from(todoCards)
-          .where(eq(todoCards.userId, ctx.userId))
+      const allCards = await ctx.db
+        .select()
+        .from(todoCards)
+        .where(eq(todoCards.userId, ctx.userId))
 
-        const sameColumn = movedCard.columnId === input.toColumnId
-        const sourceCards = allCards
-          .filter((card) => card.columnId === movedCard.columnId)
-          .sort((a, b) => a.position - b.position)
-        const sourceIndex = sourceCards.findIndex((card) => card.id === movedCard.id)
+      const sameColumn = movedCard.columnId === input.toColumnId
+      const sourceCards = allCards
+        .filter((c) => c.columnId === movedCard.columnId)
+        .sort((a, b) => a.position - b.position)
+      const sourceIndex = sourceCards.findIndex((c) => c.id === movedCard.id)
 
-        if (sourceIndex === -1) return
+      if (sourceIndex === -1) return { success: false }
 
-        if (sameColumn) {
-          const reordered = [...sourceCards]
-          reordered.splice(sourceIndex, 1)
-          const insertIndex = Math.max(
-            0,
-            Math.min(
-              input.position - (sourceIndex < input.position ? 1 : 0),
-              reordered.length,
-            ),
-          )
-          reordered.splice(insertIndex, 0, { ...movedCard, columnId: input.toColumnId })
+      if (sameColumn) {
+        const reordered = [...sourceCards]
+        reordered.splice(sourceIndex, 1)
+        const insertIndex = Math.max(
+          0,
+          Math.min(
+            input.position - (sourceIndex < input.position ? 1 : 0),
+            reordered.length,
+          ),
+        )
+        reordered.splice(insertIndex, 0, movedCard)
 
-          for (const [position, card] of reordered.entries()) {
-            await tx
-              .update(todoCards)
-              .set({ columnId: input.toColumnId, position })
-              .where(and(eq(todoCards.id, card.id), eq(todoCards.userId, ctx.userId)))
-          }
-
-          return
+        for (const [position, card] of reordered.entries()) {
+          await ctx.db
+            .update(todoCards)
+            .set({ position })
+            .where(and(eq(todoCards.id, card.id), eq(todoCards.userId, ctx.userId)))
         }
-
+      } else {
         const targetCards = allCards
-          .filter((card) => card.columnId === input.toColumnId)
+          .filter((c) => c.columnId === input.toColumnId)
           .sort((a, b) => a.position - b.position)
-        const reorderedSource = sourceCards.filter((card) => card.id !== movedCard.id)
+
+        const reorderedSource = sourceCards.filter((c) => c.id !== movedCard.id)
         const reorderedTarget = [...targetCards]
         const insertIndex = Math.max(0, Math.min(input.position, reorderedTarget.length))
         reorderedTarget.splice(insertIndex, 0, { ...movedCard, columnId: input.toColumnId })
 
         for (const [position, card] of reorderedSource.entries()) {
-          await tx
+          await ctx.db
             .update(todoCards)
-            .set({ columnId: movedCard.columnId, position })
+            .set({ position })
             .where(and(eq(todoCards.id, card.id), eq(todoCards.userId, ctx.userId)))
         }
 
         for (const [position, card] of reorderedTarget.entries()) {
-          await tx
+          await ctx.db
             .update(todoCards)
             .set({ columnId: input.toColumnId, position })
             .where(and(eq(todoCards.id, card.id), eq(todoCards.userId, ctx.userId)))
         }
-      })
+      }
 
       return { success: true }
     }),

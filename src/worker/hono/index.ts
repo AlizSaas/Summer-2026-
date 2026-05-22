@@ -62,6 +62,7 @@ App.on(["POST", "GET"], "/api/auth/*", (c) => {
 App.post("/api/chat", authMiddleware, (c) => handleChat(c));
 
 App.post("/api/summary/schedule", authMiddleware, async (c) => {
+  // eslint-disable-next-line no-useless-assignment
   let body: { email?: string; hour?: number } = {};
   try {
     body = await c.req.json();

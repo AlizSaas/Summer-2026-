@@ -1,38 +1,55 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "summer-2026",
-  "main": "src/worker/index.ts",
-  // Set this to today's date
-  "compatibility_date": "2026-05-20",
-  "compatibility_flags": ["nodejs_compat"],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "summer2026",
-      "database_id": "87ba0602-201e-440c-8757-73ed2f8901bd",
-      "remote": true
-    }
-  ],
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "DAILY_SUMMARY",
-        "class_name": "DailySummary"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_classes": ["DailySummary"]
-    }
-  ],
-  "assets": {
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-"run_worker_first": ["/api/auth/*", "/trpc", "/trpc/*", "/api/chat", "/api/summary/*"],
-  }, // Enable observability features
-  "observability": {
-    "enabled": true,
-  },
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "summer-2026",
+	"main": "src/worker/index.ts",
+	// Set this to today's date
+	"compatibility_date": "2026-05-20",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "summer2026",
+			"database_id": "87ba0602-201e-440c-8757-73ed2f8901bd",
+			"remote": true
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "DAILY_SUMMARY",
+				"class_name": "DailySummary"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_classes": [
+				"DailySummary"
+			]
+		}
+	],
+	"assets": {
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/auth/*",
+			"/trpc",
+			"/trpc/*",
+			"/api/chat",
+			"/api/summary/*"
+		],
+	}, // Enable observability features
+	"observability": {
+		"enabled": true,
+	},
+	"vars": {
+		"BETTER_AUTH_URL": "https://summer-2026.alizdevs.workers.dev/",
+		"CF_ACCOUNT_ID": "04cb99e92f7e20dd5cafcdf75be555bc",
+		"CF_D1DATASET_ID": "87ba0602-201e-440c-8757-73ed2f8901bd",
+		"EMAIL_FROM": "no-reply@alizmail.com",
+		"VITE_BASE_HOST": "https://summer-2026.alizdevs.workers.dev"
+	},
 }

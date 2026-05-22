@@ -10,9 +10,13 @@ import { Loader2 } from 'lucide-react'
 
 export const Route = createFileRoute('/_auth/login/')({ 
   beforeLoad: async () => {
-    const session = await authClient.getSession()
-    if (session?.data?.user) {
-      throw redirect({ to: '/dashboard' })
+    try {
+      const session = await authClient.getSession()
+      if (session?.data?.user) {
+        throw redirect({ to: '/dashboard' })
+      }
+    } catch {
+      // If the session check fails, still render the login page.
     }
   },  
   component: LoginPage,

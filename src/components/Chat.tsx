@@ -76,6 +76,7 @@ function useSendMessage() {
 // ─── Quick actions ────────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
+  "Schedule a daily summary email every morning at 9am",
   "What are my current goals?",
   "How many goals did I complete?",
   "What books have I logged?",
@@ -264,6 +265,7 @@ export function Chat() {
                   <p className="text-sm font-medium">How can I help you?</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Ask me anything about your goals, books, projects, or todos.
+                    Try: "Schedule a daily summary email every morning at 9am."
                   </p>
                 </div>
                 <div className="flex flex-col gap-1.5 w-full max-w-xs">

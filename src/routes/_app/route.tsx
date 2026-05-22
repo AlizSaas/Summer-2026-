@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router'
 import { authClient } from '@/lib/auth-client'
 import { Button } from '@/components/ui/button'
@@ -37,7 +38,7 @@ function UserAvatar({ name }: { name?: string | null }) {
 
 export const Route = createFileRoute('/_app')({
   beforeLoad: async () => {
-    const session = await authClient.getSession()
+    const session = await authClient.getSession().catch(() => null)
     if (!session?.data?.user) {
       throw redirect({ to: '/login' })
     }
