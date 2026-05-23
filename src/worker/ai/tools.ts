@@ -488,7 +488,7 @@ export async function executeToolCall(
         })
         return response.text()
       }
-      const url = new URL('/api/summary/status', requestContext.baseUrl)
+      const url = new URL('/api/summary/status', requestContext.baseUrl) //
       const response = await fetch(url.toString(), {
         method: 'GET',
         headers: buildInternalHeaders(requestContext.headers),
@@ -566,10 +566,12 @@ export async function executeToolCall(
       const env = requestContext.env
       if (env?.DAILY_SUMMARY) {
         const id = env.DAILY_SUMMARY.idFromName(userId)
-        const stub = env.DAILY_SUMMARY.get(id)
+         // Use the user ID as the Durable Object name to get a consistent stub for each user, 
+         // which allows us to manage their individual schedules and state within that DO.
+        const stub = env.DAILY_SUMMARY.get(id) // Get the Durable Object stub for the user
         const response = await stub.fetch('https://daily-summary/cancel', {
           method: 'POST',
-          headers: { 'x-user-id': userId },
+          headers: { 'x-user-id': userId }, // Pass the user ID in headers so the DO can identify which user's schedule to cancel
         })
         const responseText = await response.text()
         if (!response.ok) {

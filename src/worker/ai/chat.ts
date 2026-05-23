@@ -23,6 +23,7 @@ export async function handleChat(c: HonoCtx): Promise<Response> {
   const userEmail = c.get('userEmail')
   const openai = new OpenAI({ apiKey: c.env.OPENAI_API_KEY })
   const toolRequestContext = { baseUrl: c.req.url, headers: c.req.raw.headers, userEmail, env: c.env }
+   // Passes request context to tools for things like auth, logging, or making sub-requests.
 
   const messages: ChatCompletionMessageParam[] = [
     {
@@ -48,28 +49,43 @@ DAILY SUMMARY RULES:
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
-  }
+  } // Required headers for SSE responses
 
-  // ── Phase 1: resolve tool calls (non-streaming) ────────────────────────────
-  const toolResponse = await openai.chat.completions.create({
-    model: 'gpt-5-mini',
-    messages,
-    tools: AI_TOOLS,
-    tool_choice: 'auto',
-  })
+  // ── Agentic tool call loop (non-streaming) ────────────────────────────────
+  // Loops until the AI stops requesting tool calls (supports multi-step flows
+  // like: getDailySummaryStatus → scheduleDailySummary).
+  const loopMessages: ChatCompletionMessageParam[] = [...messages]
+  const MAX_TOOL_ITERATIONS = 10 // Safeguard to prevent infinite loops in case of unexpected AI behavior
 
-  const assistantMsg = toolResponse.choices[0].message
+  for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+    const toolResponse = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: loopMessages,
+      tools: AI_TOOLS,
+      tool_choice: 'auto',
+    })
 
-  const messagesForFinal: ChatCompletionMessageParam[] = [
-    ...messages,
-    {
+    const assistantMsg = toolResponse.choices[0].message
+
+    loopMessages.push({
       role: 'assistant',
       content: assistantMsg.content,
       tool_calls: assistantMsg.tool_calls,
-    },
-  ]
+    })
 
-  if (assistantMsg.tool_calls?.length) {
+    // No more tool calls — stream the final text response directly
+    if (!assistantMsg.tool_calls?.length) {
+      const content = assistantMsg.content ?? AI_FALLBACK
+      const readable = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(sseChunk(content)))
+          controller.enqueue(encoder.encode(sseDone()))
+          controller.close()
+        },
+      })
+      return new Response(readable, { headers: SSE_HEADERS })
+    }
+
     const toolResults = await Promise.all(
       assistantMsg.tool_calls
         .filter((tc) => tc.type === 'function')
@@ -82,26 +98,14 @@ DAILY SUMMARY RULES:
           return { role: 'tool' as const, tool_call_id: tc.id, content: result }
         }),
     )
-    messagesForFinal.push(...toolResults)
+
+    loopMessages.push(...toolResults)
   }
 
-  // If Phase 1 already produced text with no tool calls, stream it directly
-  if (!assistantMsg.tool_calls?.length && assistantMsg.content) {
-    const content = assistantMsg.content
-    const readable = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(sseChunk(content)))
-        controller.enqueue(encoder.encode(sseDone()))
-        controller.close()
-      },
-    })
-    return new Response(readable, { headers: SSE_HEADERS })
-  }
-
-  // ── Phase 2: stream the synthesised final response ─────────────────────────
+  // ── Fallback: stream a synthesised response after hitting max iterations ───
   const finalStream = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
-    messages: messagesForFinal,
+    messages: loopMessages,
     stream: true,
   })
 
