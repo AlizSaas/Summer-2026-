@@ -2,7 +2,7 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 import { books, goals, projects, todoCards, todoColumns } from '@/db/drizzle-out/schema'
 import { getDb, initDatabase } from '@/db/database'
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
+const SUMMARY_TIME_ZONE = 'America/New_York'
 
 type TodoColumn = typeof todoColumns.$inferSelect
 type TodoCard = typeof todoCards.$inferSelect
@@ -48,13 +48,70 @@ function normalizeHour(value: unknown) {
   return hour
 }
 
-function nextAlarmAt(hour: number, now = new Date()) {
-  const next = new Date(now.getTime())
-  next.setUTCHours(hour, 0, 0, 0)
-  if (next.getTime() <= now.getTime()) {
-    next.setUTCDate(next.getUTCDate() + 1)
+type DateParts = {
+  year: number
+  month: number
+  day: number
+  hour: number
+}
+
+function getDatePartsInSummaryTimeZone(date: Date): DateParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SUMMARY_TIME_ZONE,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+
+  const values = Object.fromEntries(
+    parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]),
+  )
+
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
   }
-  return next.getTime()
+}
+
+function summaryTimeToUtc(parts: DateParts, hour: number) {
+  const localTimestamp = Date.UTC(parts.year, parts.month - 1, parts.day, hour)
+  const initialOffset =
+    Date.UTC(
+      getDatePartsInSummaryTimeZone(new Date(localTimestamp)).year,
+      getDatePartsInSummaryTimeZone(new Date(localTimestamp)).month - 1,
+      getDatePartsInSummaryTimeZone(new Date(localTimestamp)).day,
+      getDatePartsInSummaryTimeZone(new Date(localTimestamp)).hour,
+    ) - localTimestamp
+  const timestamp = localTimestamp - initialOffset
+  const resolvedParts = getDatePartsInSummaryTimeZone(new Date(timestamp))
+  const resolvedOffset =
+    Date.UTC(resolvedParts.year, resolvedParts.month - 1, resolvedParts.day, resolvedParts.hour) - timestamp
+
+  return localTimestamp - resolvedOffset
+}
+
+function nextAlarmAt(hour: number, now = new Date()) {
+  const today = getDatePartsInSummaryTimeZone(now)
+  let nextAlarm = summaryTimeToUtc(today, hour)
+
+  if (nextAlarm <= now.getTime()) {
+    const tomorrow = new Date(Date.UTC(today.year, today.month - 1, today.day + 1))
+    nextAlarm = summaryTimeToUtc(
+      {
+        year: tomorrow.getUTCFullYear(),
+        month: tomorrow.getUTCMonth() + 1,
+        day: tomorrow.getUTCDate(),
+        hour: 0,
+      },
+      hour,
+    )
+  }
+
+  return nextAlarm
 }
 
 function buildEmailHtml(data: SummaryData) {
@@ -190,7 +247,7 @@ export class DailySummary {
     try {
       await this.sendEmail(config.email, html)
     } finally {
-      await this.state.storage.setAlarm(Date.now() + ONE_DAY_MS)
+      await this.state.storage.setAlarm(nextAlarmAt(config.hour))
     }
   }
 

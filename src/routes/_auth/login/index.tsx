@@ -2,11 +2,10 @@
 import { createFileRoute, useNavigate, Link, redirect } from '@tanstack/react-router'
 import { useState } from 'react'
 import { authClient } from '@/lib/auth-client'
-import { Button } from '@/components/ui/button'
+import { StatefulButton } from '@/components/motion/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2 } from 'lucide-react'
 
 export const Route = createFileRoute('/_auth/login/')({ 
   beforeLoad: async () => {
@@ -87,10 +86,14 @@ function LoginPage() {
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading && <Loader2 className="mr-2 size-4 animate-spin" />}
-            {loading ? 'Signing in…' : 'Sign In'}
-          </Button>
+          <StatefulButton
+            type="submit"
+            className="w-full"
+            state={loading ? 'loading' : 'idle'}
+            loadingText="Signing in…"
+          >
+            Sign In
+          </StatefulButton>
         </form>
       </CardContent>
       <CardFooter className="flex justify-center border-t pt-4">

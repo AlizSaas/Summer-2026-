@@ -3,6 +3,8 @@ import { Bot, Maximize2, Minimize2, Send, SquarePen, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -305,10 +307,56 @@ export function Chat() {
                       : 'bg-muted text-foreground rounded-bl-sm',
                   )}
                 >
-                  {msg.content || (streamingId === msg.id ? null : '…')}
-                  {streamingId === msg.id && (
-                    <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-current align-middle" />
-                  )}
+                  {msg.content ? (
+<ReactMarkdown
+  remarkPlugins={[remarkGfm]}
+  components={{
+    p: ({ children }) => (
+      <p className="mb-2 last:mb-0">{children}</p>
+    ),
+
+    ol: ({ children }) => (
+      <ol className="ml-5 mb-2 list-decimal space-y-2">
+        {children}
+      </ol>
+    ),
+
+    ul: ({ children }) => (
+      <ul className="ml-5 mt-1 list-disc space-y-1">
+        {children}
+      </ul>
+    ),
+
+    li: ({ children }) => (
+      <li className="pl-1">
+        {children}
+      </li>
+    ),
+
+    strong: ({ children }) => (
+      <strong className="font-semibold">
+        {children}
+      </strong>
+    ),
+
+    em: ({ children }) => (
+      <em className="italic">
+        {children}
+      </em>
+    ),
+
+    code: ({ children }) => (
+      <code className="rounded bg-background/70 px-1 py-0.5 text-xs font-mono">
+        {children}
+      </code>
+    ),
+  }}
+>
+  {msg.content}
+</ReactMarkdown>
+) : streamingId === msg.id ? null : (
+  '…'
+)}
                 </div>
               </div>
             ))}
